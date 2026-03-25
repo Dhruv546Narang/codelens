@@ -1,0 +1,1289 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CodeLens — AI Code Reviewer</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* ── THEME VARIABLES ── */
+  :root {
+    --lime:      #39ff14;
+    --lime-dim:  #2dcc10;
+    --lime-glow: rgba(57,255,20,0.15);
+    --blue:      #4da6ff;
+    --blue-dim:  #2980ff;
+    --blue-glow: rgba(77,166,255,0.15);
+    --danger:    #ff4757;
+    --warning:   #ffa502;
+    --purple:    #c77dff;
+  }
+
+  [data-theme="dark"] {
+    --bg:         #1e1f22;
+    --bg2:        #252628;
+    --surface:    #2b2d30;
+    --surface2:   #313335;
+    --border:     #3c3f41;
+    --border2:    #464849;
+    --text:       #bcbec4;
+    --text2:      #dfe1e5;
+    --muted:      #6f737a;
+    --muted2:     #888d95;
+    --white:      #f5f6f7;
+    --shadow:     rgba(0,0,0,0.4);
+  }
+
+  [data-theme="light"] {
+    --bg:         #f5f5f5;
+    --bg2:        #ebebeb;
+    --surface:    #ffffff;
+    --surface2:   #f9f9f9;
+    --border:     #d8d8d8;
+    --border2:    #c8c8c8;
+    --text:       #4a4a4a;
+    --text2:      #1a1a1a;
+    --muted:      #9a9a9a;
+    --muted2:     #6a6a6a;
+    --white:      #111111;
+    --shadow:     rgba(0,0,0,0.12);
+  }
+
+  * { margin:0; padding:0; box-sizing:border-box; }
+
+  html { font-size: 14px; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Outfit', sans-serif;
+    min-height: 100vh;
+    transition: background 0.3s, color 0.3s;
+    overflow-x: hidden;
+  }
+
+  /* Subtle noise texture overlay */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    opacity: 0.025;
+    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E");
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* ── NAVBAR ── */
+  .navbar {
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    padding: 0 32px;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    box-shadow: 0 2px 12px var(--shadow);
+    animation: slideDown 0.4s ease forwards;
+  }
+
+  @keyframes slideDown {
+    from { transform: translateY(-100%); opacity: 0; }
+    to   { transform: none; opacity: 1; }
+  }
+
+  .nav-logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    text-decoration: none;
+  }
+
+  .logo-gem {
+    width: 32px; height: 32px;
+    background: linear-gradient(135deg, var(--lime), var(--blue));
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    box-shadow: 0 0 16px var(--lime-glow);
+    animation: pulse-logo 3s ease-in-out infinite;
+  }
+
+  @keyframes pulse-logo {
+    0%,100% { box-shadow: 0 0 16px var(--lime-glow); }
+    50%      { box-shadow: 0 0 28px var(--lime-glow), 0 0 8px var(--blue-glow); }
+  }
+
+  .nav-wordmark {
+    font-family: 'Outfit', sans-serif;
+    font-weight: 700;
+    font-size: 18px;
+    color: var(--white);
+    letter-spacing: -0.3px;
+  }
+
+  .nav-wordmark span { color: var(--lime); }
+
+  .nav-badge {
+    padding: 3px 10px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    font-size: 11px;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--lime);
+    letter-spacing: 0.5px;
+    animation: fadeIn 0.6s ease 0.3s both;
+  }
+
+  .nav-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  /* Theme toggle */
+  .theme-toggle {
+    width: 44px; height: 24px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    cursor: pointer;
+    position: relative;
+    transition: background 0.3s;
+  }
+
+  .theme-toggle::after {
+    content: '';
+    position: absolute;
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: var(--lime);
+    top: 2px; left: 2px;
+    transition: transform 0.3s cubic-bezier(0.34,1.56,0.64,1);
+    box-shadow: 0 0 8px var(--lime-glow);
+  }
+
+  [data-theme="light"] .theme-toggle::after {
+    transform: translateX(20px);
+    background: var(--blue);
+    box-shadow: 0 0 8px var(--blue-glow);
+  }
+
+  .theme-icon {
+    position: absolute;
+    font-size: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+  }
+
+  /* ── HERO SECTION ── */
+  .hero {
+    text-align: center;
+    padding: 56px 32px 40px;
+    position: relative;
+    z-index: 2;
+    animation: fadeUp 0.6s ease 0.1s both;
+  }
+
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(20px); }
+    to   { opacity: 1; transform: none; }
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+
+  .hero-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 14px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    font-size: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--lime);
+    margin-bottom: 20px;
+    letter-spacing: 0.5px;
+  }
+
+  .hero-tag::before {
+    content: '';
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--lime);
+    box-shadow: 0 0 8px var(--lime);
+    animation: blink 2s ease-in-out infinite;
+  }
+
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
+
+  .hero h1 {
+    font-family: 'Outfit', sans-serif;
+    font-size: clamp(32px, 5vw, 52px);
+    font-weight: 700;
+    color: var(--white);
+    letter-spacing: -1px;
+    line-height: 1.1;
+    margin-bottom: 12px;
+  }
+
+  .hero h1 .grad {
+    background: linear-gradient(90deg, var(--lime), var(--blue));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .hero p {
+    font-size: 15px;
+    color: var(--muted2);
+    max-width: 480px;
+    margin: 0 auto;
+    line-height: 1.7;
+  }
+
+  /* ── MAIN CARD ── */
+  .main-card {
+    max-width: 1100px;
+    margin: 0 auto 48px;
+    padding: 0 24px;
+    position: relative;
+    z-index: 2;
+    animation: fadeUp 0.6s ease 0.2s both;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 8px 40px var(--shadow);
+    transition: background 0.3s, border-color 0.3s;
+  }
+
+  /* ── TOOLBAR ── */
+  .toolbar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 20px;
+    background: var(--surface2);
+    border-bottom: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+
+  .toolbar-label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--muted2);
+    letter-spacing: 0.3px;
+  }
+
+  select#language {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text2);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    padding: 5px 10px;
+    border-radius: 6px;
+    outline: none;
+    cursor: pointer;
+    transition: border-color 0.2s, box-shadow 0.2s;
+  }
+
+  select#language:focus {
+    border-color: var(--lime);
+    box-shadow: 0 0 0 3px var(--lime-glow);
+  }
+
+  .char-count {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--muted);
+    margin-left: auto;
+  }
+
+  .char-count.warn { color: var(--warning); }
+  .char-count.over { color: var(--danger); }
+
+  /* ── CODE AREA ── */
+  .code-wrap {
+    position: relative;
+  }
+
+  /* Drag overlay */
+  .drag-overlay {
+    position: absolute;
+    inset: 0;
+    background: rgba(57,255,20,0.05);
+    border: 2px dashed var(--lime);
+    border-radius: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 10;
+    pointer-events: none;
+  }
+
+  .drag-overlay.show { display: flex; }
+
+  .drag-text {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    color: var(--lime);
+    font-size: 15px;
+    font-weight: 600;
+  }
+
+  textarea#code {
+    width: 100%;
+    height: 280px;
+    background: var(--bg);
+    border: none;
+    border-bottom: 1px solid var(--border);
+    color: var(--white);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    line-height: 1.75;
+    padding: 20px 24px;
+    resize: vertical;
+    outline: none;
+    tab-size: 2;
+    transition: background 0.3s;
+  }
+
+  textarea#code::placeholder {
+    color: var(--muted);
+    font-style: italic;
+  }
+
+  /* ── ACTION BAR ── */
+  .action-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px 20px;
+    background: var(--surface2);
+    border-top: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 8px 18px;
+    border-radius: 8px;
+    font-family: 'Outfit', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: all 0.2s cubic-bezier(0.34,1.56,0.64,1);
+    white-space: nowrap;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .btn::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: white;
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+
+  .btn:active::after { opacity: 0.08; }
+  .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none !important; }
+
+  .btn-lime {
+    background: var(--lime);
+    color: #0a0a0a;
+    border-color: var(--lime);
+    box-shadow: 0 0 0 var(--lime-glow);
+  }
+
+  .btn-lime:hover:not(:disabled) {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 24px var(--lime-glow), 0 0 0 3px rgba(57,255,20,0.2);
+  }
+
+  .btn-blue {
+    background: transparent;
+    color: var(--blue);
+    border-color: var(--blue);
+  }
+
+  .btn-blue:hover:not(:disabled) {
+    background: var(--blue-glow);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px var(--blue-glow);
+  }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--muted2);
+    border-color: var(--border);
+  }
+
+  .btn-ghost:hover:not(:disabled) {
+    background: var(--surface2);
+    color: var(--text2);
+    transform: translateY(-1px);
+  }
+
+  /* Upload button */
+  .btn-upload {
+    background: transparent;
+    color: var(--muted2);
+    border-color: var(--border);
+    position: relative;
+    overflow: hidden;
+    cursor: pointer;
+  }
+
+  .btn-upload:hover {
+    background: var(--surface2);
+    color: var(--text2);
+    transform: translateY(-1px);
+  }
+
+  .btn-upload input[type="file"] {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+    width: 100%;
+    height: 100%;
+    font-size: 0;
+  }
+
+  /* ── RESULTS SECTION ── */
+  .results {
+    padding: 0 24px;
+    max-width: 1100px;
+    margin: 0 auto 64px;
+    position: relative;
+    z-index: 2;
+  }
+
+  /* Loading state */
+  .loading-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 60px 32px;
+    text-align: center;
+    box-shadow: 0 8px 40px var(--shadow);
+    animation: fadeIn 0.3s ease;
+  }
+
+  .loading-dots {
+    display: flex;
+    justify-content: center;
+    gap: 8px;
+    margin-bottom: 20px;
+  }
+
+  .loading-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    animation: bounce 1.2s ease-in-out infinite;
+  }
+
+  .loading-dot:nth-child(1) { background: var(--lime); }
+  .loading-dot:nth-child(2) { background: var(--blue); animation-delay: 0.2s; }
+  .loading-dot:nth-child(3) { background: var(--lime); animation-delay: 0.4s; }
+
+  @keyframes bounce {
+    0%,60%,100% { transform: translateY(0); opacity: 0.4; }
+    30%          { transform: translateY(-12px); opacity: 1; }
+  }
+
+  .loading-text {
+    font-size: 14px;
+    color: var(--muted2);
+    font-weight: 500;
+  }
+
+  .loading-sub {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 6px;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* Score row */
+  .score-row {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px 28px;
+    margin-bottom: 16px;
+    box-shadow: 0 4px 20px var(--shadow);
+    animation: fadeUp 0.4s ease both;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .score-row::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 4px;
+    background: linear-gradient(to bottom, var(--lime), var(--blue));
+    border-radius: 4px 0 0 4px;
+  }
+
+  .score-circle {
+    width: 72px; height: 72px;
+    border-radius: 50%;
+    border: 3px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    transition: border-color 0.3s, box-shadow 0.3s;
+  }
+
+  .score-circle.high {
+    border-color: var(--lime);
+    box-shadow: 0 0 20px var(--lime-glow);
+  }
+
+  .score-circle.mid  { border-color: var(--warning); }
+  .score-circle.low  { border-color: var(--danger); }
+
+  .score-num {
+    font-family: 'Outfit', sans-serif;
+    font-size: 26px;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  .score-num.high { color: var(--lime); }
+  .score-num.mid  { color: var(--warning); }
+  .score-num.low  { color: var(--danger); }
+
+  .score-info { flex: 1; min-width: 0; }
+
+  .score-label {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--white);
+    margin-bottom: 10px;
+  }
+
+  .score-bar-track {
+    height: 6px;
+    background: var(--bg);
+    border-radius: 3px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+
+  .score-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    background: linear-gradient(to right, var(--danger), var(--warning) 50%, var(--lime));
+    transition: width 1.2s cubic-bezier(0.4,0,0.2,1);
+  }
+
+  .summary-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--blue);
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin-bottom: 16px;
+    font-size: 14px;
+    color: var(--text2);
+    line-height: 1.8;
+    font-style: italic;
+    animation: fadeUp 0.4s ease 0.05s both;
+    box-shadow: 0 2px 12px var(--shadow);
+  }
+
+  /* Results grid */
+  .results-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  .r-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    animation: fadeUp 0.4s ease both;
+    box-shadow: 0 2px 12px var(--shadow);
+    transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
+  }
+
+  .r-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 24px var(--shadow);
+  }
+
+  .r-card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    background: var(--surface2);
+    border-bottom: 1px solid var(--border);
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    cursor: pointer;
+    user-select: none;
+    transition: background 0.15s;
+  }
+
+  .r-card-head:hover { background: var(--bg2); }
+
+  .r-count-badge {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1px 8px;
+    font-size: 11px;
+    font-family: 'JetBrains Mono', monospace;
+    color: var(--muted2);
+  }
+
+  .r-card-body { padding: 6px 0; }
+
+  .r-item {
+    display: flex;
+    gap: 10px;
+    padding: 7px 16px;
+    font-size: 13px;
+    color: var(--text);
+    line-height: 1.6;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.1s;
+  }
+
+  .r-item:last-child { border-bottom: none; }
+  .r-item:hover { background: var(--bg); }
+
+  .r-bullet { flex-shrink: 0; font-size: 10px; margin-top: 4px; }
+
+  /* Card accent colors */
+  .c-bugs  .r-card-head { color: var(--danger); }
+  .c-bugs  .r-bullet    { color: var(--danger); }
+  .c-sec   .r-card-head { color: var(--warning); }
+  .c-sec   .r-bullet    { color: var(--warning); }
+  .c-perf  .r-card-head { color: #ff7c52; }
+  .c-perf  .r-bullet    { color: #ff7c52; }
+  .c-style .r-card-head { color: var(--purple); }
+  .c-style .r-bullet    { color: var(--purple); }
+  .c-good  .r-card-head { color: var(--lime); }
+  .c-good  .r-bullet    { color: var(--lime); }
+  .c-recs  .r-card-head { color: var(--blue); }
+  .c-recs  .r-bullet    { color: var(--blue); }
+
+  /* Fixed code block */
+  .fixed-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    margin-bottom: 16px;
+    animation: fadeUp 0.4s ease both;
+    box-shadow: 0 2px 12px var(--shadow);
+  }
+
+  .fixed-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 16px;
+    background: var(--surface2);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .fixed-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--lime);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  pre#fixed-output {
+    padding: 20px 24px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12.5px;
+    color: var(--white);
+    line-height: 1.75;
+    overflow-x: auto;
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: var(--bg);
+    max-height: 400px;
+    overflow-y: auto;
+  }
+
+  /* Error card */
+  .error-card {
+    background: rgba(255,71,87,0.07);
+    border: 1px solid rgba(255,71,87,0.3);
+    border-radius: 12px;
+    padding: 20px 24px;
+    color: var(--danger);
+    font-size: 14px;
+    line-height: 1.7;
+    animation: fadeUp 0.3s ease both;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  /* History sidebar */
+  .history-section {
+    max-width: 1100px;
+    margin: 0 auto 64px;
+    padding: 0 24px;
+    position: relative;
+    z-index: 2;
+    animation: fadeUp 0.6s ease 0.3s both;
+  }
+
+  .history-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 14px;
+  }
+
+  .history-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--muted2);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .history-title::before {
+    content: '';
+    width: 3px; height: 14px;
+    background: linear-gradient(to bottom, var(--lime), var(--blue));
+    border-radius: 2px;
+  }
+
+  .history-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 10px;
+  }
+
+  .history-empty {
+    grid-column: 1/-1;
+    text-align: center;
+    padding: 32px;
+    color: var(--muted);
+    font-size: 13px;
+    background: var(--surface);
+    border: 1px dashed var(--border);
+    border-radius: 12px;
+  }
+
+  .h-item {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 14px;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .h-item:hover {
+    border-color: var(--lime);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px var(--shadow), 0 0 0 1px var(--lime-glow);
+  }
+
+  .h-item-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 6px;
+  }
+
+  .h-lang {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    padding: 2px 7px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: var(--lime);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .h-score { font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 700; }
+  .h-score.high { color: var(--lime); }
+  .h-score.mid  { color: var(--warning); }
+  .h-score.low  { color: var(--danger); }
+
+  .h-preview {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--muted2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-bottom: 6px;
+  }
+
+  .h-time { font-size: 11px; color: var(--muted); }
+
+  .h-delete {
+    position: absolute;
+    top: 8px; right: 8px;
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    background: var(--danger);
+    color: white;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity 0.2s;
+    cursor: pointer;
+    border: none;
+    line-height: 1;
+  }
+
+  .h-item:hover .h-delete { opacity: 1; }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+</style>
+</head>
+<body>
+
+<!-- NAVBAR -->
+<nav class="navbar">
+  <a href="#" class="nav-logo">
+    <div class="logo-gem">⬡</div>
+    <span class="nav-wordmark">Code<span>Lens</span></span>
+  </a>
+  <div class="nav-badge">gemini-3-pro-preview</div>
+  <div class="nav-right">
+    <div class="theme-toggle" onclick="toggleTheme()" title="Toggle light/dark mode"></div>
+  </div>
+</nav>
+
+<!-- HERO -->
+<div class="hero">
+  <div class="hero-tag">AI-Powered Code Review</div>
+  <h1>Review your code.<br><span class="grad">Instantly.</span></h1>
+  <p>Paste any code and get a detailed AI review — bugs, security issues, performance, and a fixed version.</p>
+</div>
+
+<!-- MAIN CARD -->
+<div class="main-card">
+  <div class="card">
+
+    <!-- Toolbar -->
+    <div class="toolbar">
+      <span class="toolbar-label">Language</span>
+      <select id="language">
+        <option value="python">Python</option>
+        <option value="javascript">JavaScript</option>
+        <option value="typescript">TypeScript</option>
+        <option value="java">Java</option>
+        <option value="cpp">C++</option>
+        <option value="c">C</option>
+        <option value="go">Go</option>
+        <option value="rust">Rust</option>
+        <option value="php">PHP</option>
+        <option value="sql">SQL</option>
+      </select>
+      <span class="char-count" id="char-count">0 / 10,000</span>
+    </div>
+
+    <!-- Code input with drag & drop -->
+    <div class="code-wrap" id="drop-zone">
+      <div class="drag-overlay" id="drag-overlay">
+        <div class="drag-text">
+          <span style="font-size:36px">📂</span>
+          Drop your file here
+        </div>
+      </div>
+      <textarea
+        id="code"
+        placeholder="Paste your code here, or drag & drop a file...
+
+Supports: .py  .js  .ts  .java  .cpp  .c  .go  .rs  .php  .sql"
+        spellcheck="false"
+      ></textarea>
+    </div>
+
+    <!-- Actions -->
+    <div class="action-bar">
+      <button class="btn btn-lime" id="review-btn" onclick="runReview()">
+        <span id="btn-icon">▶</span>
+        <span id="btn-text">Run Review</span>
+      </button>
+      <button class="btn btn-blue" id="fix-btn" onclick="runFix()" disabled>
+        ✦ Fix Code
+      </button>
+      <label class="btn btn-upload">
+        ↑ Upload File
+        <input type="file" id="file-input" accept=".py,.js,.ts,.java,.cpp,.c,.go,.rs,.php,.sql,.txt" onchange="handleFile(event)">
+      </label>
+      <button class="btn btn-ghost" onclick="clearAll()">✕ Clear</button>
+      <span style="margin-left:auto; font-size:12px; color:var(--muted); font-family:'JetBrains Mono',monospace;">
+        <kbd style="background:var(--bg);border:1px solid var(--border);border-radius:4px;padding:2px 6px;font-size:11px;">Ctrl+Enter</kbd> to review
+      </span>
+    </div>
+
+  </div>
+</div>
+
+<!-- RESULTS -->
+<div class="results" id="results"></div>
+
+<!-- HISTORY -->
+<div class="history-section">
+  <div class="history-header">
+    <div class="history-title">Recent Reviews</div>
+    <button class="btn btn-ghost" style="font-size:12px;padding:5px 12px;" onclick="clearAllHistory()">Clear History</button>
+  </div>
+  <div class="history-grid" id="history-grid">
+    <div class="history-empty">No reviews yet. Run your first review above.</div>
+  </div>
+</div>
+
+<script>
+  const codeEl   = document.getElementById('code');
+  const reviewBtn= document.getElementById('review-btn');
+  const fixBtn   = document.getElementById('fix-btn');
+  const btnIcon  = document.getElementById('btn-icon');
+  const btnText  = document.getElementById('btn-text');
+  const results  = document.getElementById('results');
+  const charCount= document.getElementById('char-count');
+
+  let currentCode = '';
+  let currentLang = 'python';
+
+  // ── Theme toggle ───────────────────────────────────────────────────────────
+  function toggleTheme() {
+    const html = document.documentElement;
+    html.setAttribute('data-theme', html.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+  }
+
+  // ── Char count ─────────────────────────────────────────────────────────────
+  codeEl.addEventListener('input', () => {
+    const n = codeEl.value.length;
+    charCount.textContent = `${n.toLocaleString()} / 10,000`;
+    charCount.className = 'char-count' + (n > 9000 ? ' warn' : '') + (n > 10000 ? ' over' : '');
+  });
+
+  // ── File upload ────────────────────────────────────────────────────────────
+  function handleFile(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const extMap = { py:'python', js:'javascript', ts:'typescript', java:'java', cpp:'cpp', c:'c', go:'go', rs:'rust', php:'php', sql:'sql' };
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (extMap[ext]) document.getElementById('language').value = extMap[ext];
+    const reader = new FileReader();
+    reader.onload = ev => {
+      codeEl.value = ev.target.result;
+      codeEl.dispatchEvent(new Event('input'));
+    };
+    reader.readAsText(file);
+    // Reset input so same file can be re-uploaded
+    e.target.value = '';
+  }
+
+  // ── Drag & drop ────────────────────────────────────────────────────────────
+  const dropZone    = document.getElementById('drop-zone');
+  const dragOverlay = document.getElementById('drag-overlay');
+
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dragOverlay.classList.add('show'); });
+  dropZone.addEventListener('dragleave', e => { if (!dropZone.contains(e.relatedTarget)) dragOverlay.classList.remove('show'); });
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dragOverlay.classList.remove('show');
+    const file = e.dataTransfer.files[0];
+    if (!file) return;
+    handleFile({ target: { files: [file], value: '' } });
+  });
+
+  // ── Clear ──────────────────────────────────────────────────────────────────
+  function clearAll() {
+    codeEl.value = '';
+    charCount.textContent = '0 / 10,000';
+    charCount.className = 'char-count';
+    results.innerHTML = '';
+    fixBtn.disabled = true;
+    currentCode = '';
+  }
+
+  // ── Review ─────────────────────────────────────────────────────────────────
+  async function runReview() {
+    const code = codeEl.value.trim();
+    const lang = document.getElementById('language').value;
+    if (!code) { codeEl.focus(); return; }
+
+    currentCode = code;
+    currentLang = lang;
+
+    reviewBtn.disabled = true;
+    fixBtn.disabled = true;
+    btnIcon.textContent = '⟳';
+    btnText.textContent = 'Reviewing...';
+
+    results.innerHTML = `
+      <div class="loading-card">
+        <div class="loading-dots">
+          <div class="loading-dot"></div>
+          <div class="loading-dot"></div>
+          <div class="loading-dot"></div>
+        </div>
+        <div class="loading-text">Analysing with Gemini 3</div>
+        <div class="loading-sub">Checking for bugs, security issues, and improvements...</div>
+      </div>`;
+
+    try {
+      const res  = await fetch('/review', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({code, language: lang}) });
+      const data = await res.json();
+      if (data.error) { showError(data.error); }
+      else {
+        renderReview(data.review);
+        fixBtn.disabled = false;
+        loadHistory();
+      }
+    } catch(e) {
+      showError('Could not connect to Flask server. Make sure it is running.');
+    } finally {
+      reviewBtn.disabled = false;
+      btnIcon.textContent = '▶';
+      btnText.textContent = 'Run Review';
+    }
+  }
+
+  // ── Fix ────────────────────────────────────────────────────────────────────
+  async function runFix() {
+    if (!currentCode) return;
+    fixBtn.disabled = true;
+    fixBtn.textContent = '⟳ Fixing...';
+
+    // Show a loading state in results without clearing the review
+    const fixCard = document.getElementById('fix-card');
+    if (fixCard) fixCard.innerHTML = `<div style="padding:24px;text-align:center;color:var(--muted2);font-size:13px;">Generating fixed code...</div>`;
+
+    try {
+      const res  = await fetch('/fix', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ code: currentCode, language: currentLang }) });
+      const data = await res.json();
+      const fc = document.getElementById('fix-card');
+      if (data.error) {
+        if(fc) fc.innerHTML = `<div class="error-card">⚠ ${esc(data.error)}</div>`;
+      } else {
+        if(fc) fc.innerHTML = `
+          <div class="fixed-card">
+            <div class="fixed-head">
+              <span class="fixed-label">✦ Fixed Code</span>
+              <button class="btn btn-ghost" style="font-size:11px;padding:4px 10px;" onclick="copyFixed()">Copy</button>
+            </div>
+            <pre id="fixed-output">${esc(data.fixed_code)}</pre>
+          </div>`;
+      }
+    } catch(e) {
+      const fc = document.getElementById('fix-card');
+      if(fc) fc.innerHTML = `<div class="error-card">⚠ Server error.</div>`;
+    } finally {
+      fixBtn.disabled = false;
+      fixBtn.innerHTML = '✦ Fix Code';
+    }
+  }
+
+  function copyFixed() {
+    const el = document.getElementById('fixed-output');
+    if (el) navigator.clipboard.writeText(el.textContent).then(() => { fixBtn.textContent = '✓ Copied!'; setTimeout(() => fixBtn.innerHTML = '✦ Fix Code', 1500); });
+  }
+
+  // ── Render review ──────────────────────────────────────────────────────────
+  function renderReview(text) {
+    results.innerHTML = '';
+
+    // Score
+    const sm = text.match(/OVERALL SCORE:\s*(\d+)\/10/i);
+    const score = sm ? parseInt(sm[1]) : null;
+
+    if (score !== null) {
+      const cls = score >= 7 ? 'high' : score >= 4 ? 'mid' : 'low';
+      const label = score >= 7 ? 'Good code quality' : score >= 4 ? 'Needs some work' : 'Significant issues found';
+      const pct = score * 10;
+      const sr = document.createElement('div');
+      sr.className = 'score-row';
+      sr.innerHTML = `
+        <div class="score-circle ${cls}">
+          <span class="score-num ${cls}">${score}<span style="font-size:13px;opacity:0.6">/10</span></span>
+        </div>
+        <div class="score-info">
+          <div class="score-label">${label}</div>
+          <div class="score-bar-track"><div class="score-bar-fill" style="width:0%" id="sbar"></div></div>
+        </div>`;
+      results.appendChild(sr);
+      setTimeout(() => { const b = document.getElementById('sbar'); if(b) b.style.width = pct + '%'; }, 100);
+    }
+
+    // Summary
+    const sumM = text.match(/SUMMARY\n([\s\S]*?)(?=\n🐛|\n[A-Z]{2,}|$)/);
+    if (sumM && sumM[1].trim()) {
+      const sc = document.createElement('div');
+      sc.className = 'summary-card';
+      sc.style.animationDelay = '0.05s';
+      sc.textContent = sumM[1].trim();
+      results.appendChild(sc);
+    }
+
+    // Sections grid
+    const grid = document.createElement('div');
+    grid.className = 'results-grid';
+
+    const secs = [
+      { emoji:'🐛', label:'Bugs',               cls:'c-bugs'  },
+      { emoji:'🔒', label:'Security Issues',    cls:'c-sec'   },
+      { emoji:'⚡', label:'Performance',         cls:'c-perf'  },
+      { emoji:'📖', label:'Readability & Style', cls:'c-style' },
+      { emoji:'✅', label:"What's Good",         cls:'c-good'  },
+      { emoji:'🔧', label:'Recommendations',     cls:'c-recs'  },
+    ];
+
+    secs.forEach((s, i) => {
+      const rx = new RegExp(s.emoji + '[^\\n]*\\n([\\s\\S]*?)(?=\\n[🐛🔒⚡📖✅🔧]|$)');
+      const m  = text.match(rx);
+      if (!m) return;
+      const items = m[1].trim().split('\n').map(l=>l.trim()).filter(l=>l.startsWith('-')).map(l=>l.slice(1).trim());
+      if (!items.length) return;
+
+      const card = document.createElement('div');
+      card.className = `r-card ${s.cls}`;
+      card.style.animationDelay = `${i * 0.06}s`;
+
+      card.innerHTML = `
+        <div class="r-card-head">
+          <span>${s.emoji} ${s.label}</span>
+          <span class="r-count-badge">${items.length}</span>
+        </div>
+        <div class="r-card-body">
+          ${items.map(it => `<div class="r-item"><span class="r-bullet">▸</span><span>${esc(it)}</span></div>`).join('')}
+        </div>`;
+      grid.appendChild(card);
+    });
+
+    results.appendChild(grid);
+
+    // Fix card placeholder
+    const fixPlaceholder = document.createElement('div');
+    fixPlaceholder.id = 'fix-card';
+    results.appendChild(fixPlaceholder);
+  }
+
+  function showError(msg) {
+    results.innerHTML = `<div class="error-card"><span style="font-size:20px">⚠</span><span>${esc(msg)}</span></div>`;
+  }
+
+  function esc(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ── History ────────────────────────────────────────────────────────────────
+  async function loadHistory() {
+    const res  = await fetch('/history');
+    const data = await res.json();
+    const grid = document.getElementById('history-grid');
+    if (!data.length) {
+      grid.innerHTML = '<div class="history-empty">No reviews yet. Run your first review above.</div>';
+      return;
+    }
+    grid.innerHTML = data.map(item => {
+      const cls = item.score >= 7 ? 'high' : item.score >= 4 ? 'mid' : 'low';
+      const score = item.score !== null ? `<span class="h-score ${cls}">${item.score}/10</span>` : '';
+      const time = item.created_at ? item.created_at.split(' ')[1].substring(0,5) : '';
+      const date = item.created_at ? item.created_at.split(' ')[0] : '';
+      return `
+        <div class="h-item" onclick="loadHistoryItem(${item.id})">
+          <div class="h-item-top">
+            <span class="h-lang">${esc(item.language)}</span>
+            ${score}
+          </div>
+          <div class="h-preview">${esc(item.preview)}</div>
+          <div class="h-time">${date} · ${time}</div>
+          <button class="h-delete" onclick="event.stopPropagation(); deleteItem(${item.id})">×</button>
+        </div>`;
+    }).join('');
+  }
+
+  async function loadHistoryItem(id) {
+    const res  = await fetch(`/history/${id}`);
+    const data = await res.json();
+    if (data.error) return;
+    codeEl.value = data.code;
+    codeEl.dispatchEvent(new Event('input'));
+    document.getElementById('language').value = data.language;
+    currentCode = data.code;
+    currentLang = data.language;
+    renderReview(data.review);
+    fixBtn.disabled = false;
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  async function deleteItem(id) {
+    await fetch(`/history/${id}`, { method:'DELETE' });
+    loadHistory();
+  }
+
+  async function clearAllHistory() {
+    if (!confirm('Clear all review history?')) return;
+    await fetch('/history', { method:'DELETE' });
+    loadHistory();
+  }
+
+  // ── Keyboard shortcut ──────────────────────────────────────────────────────
+  document.addEventListener('keydown', e => {
+    if (e.ctrlKey && e.key === 'Enter') { e.preventDefault(); runReview(); }
+  });
+
+  // ── Init ───────────────────────────────────────────────────────────────────
+  loadHistory();
+</script>
+</body>
+</html>
