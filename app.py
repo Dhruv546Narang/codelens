@@ -1,5 +1,5 @@
 """
-app.py — Flask web server for CodeLens
+app.py — Flask web server for CodeLens 2.0
 """
 
 from flask import Flask, render_template, request, jsonify
